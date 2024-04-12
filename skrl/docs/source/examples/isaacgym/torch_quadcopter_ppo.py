@@ -53,7 +53,7 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
 
 
 # load and wrap the Isaac Gym environment
-env = load_isaacgym_env_preview4(task_name="Ingenuity")
+env = load_isaacgym_env_preview4(task_name="Quadcopter")
 env = wrap_env(env)
 
 device = env.device
