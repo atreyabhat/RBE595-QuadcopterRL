@@ -19,7 +19,6 @@ env:
 
   asset:
     assetRoot: "../../assets"
-    assetFileName: "resources/models/environment_assets/objects/2_x_2_wall.urdf"
 
   obstacle:
     startPose:

@@ -46,8 +46,10 @@ class QuadcopterTier2(VecTask):
 
         self.max_episode_length = self.cfg["env"]["maxEpisodeLength"]
         self.debug_viz = self.cfg["env"]["enableDebugVis"]
+        
         self.sim_device = sim_device
         self.headless = headless
+        self.flat_image_size = self.cfg["camera"]["flatImageSize"]
 
         dofs_per_env = 8
 
@@ -61,7 +63,7 @@ class QuadcopterTier2(VecTask):
         # Observations:
         # 0:13 - root state
         # 13:29 - DOF states
-        num_obs = 21
+        num_obs = 21 + self.flat_image_size**2
 
         # Actions:
         # 0:8 - rotor DOF position targets
@@ -73,7 +75,6 @@ class QuadcopterTier2(VecTask):
         self.num_obstacles = 1
         num_actors = self.num_obstacles + 1
         self.cam_resolution =  self.cfg["camera"]["cam_resolution"]
-        num_obs = 21 + self.cam_resolution[0] * self.cam_resolution[1]
 
         self.enable_onboard_cameras = self.cfg["env"]["enableCameraSensors"]
         self.save_images = self.cfg["env"]["saveImages"]
@@ -145,10 +146,9 @@ class QuadcopterTier2(VecTask):
 
         # Set drone hit ground buffer #FIXME: in tier1, but here should be solved by environment bounds
         self.drone_hit_ground_buf = torch.ones(self.num_envs, device=self.device, dtype=torch.long)
-        self.full_camera_array = torch.zeros((self.num_envs, self.cam_resolution[0], self.cam_resolution[1]), device=self.device)
         self.collisions = torch.zeros(self.num_envs, device=self.device) 
 
-        self.depth_image = torch.zeros((1, 1024), device=self.device)
+        self.depth_images_tensor = torch.zeros((self.num_envs, self.flat_image_size**2), device=self.device)
 
     def create_sim(self):
         self.sim_params.up_axis = gymapi.UP_AXIS_Z
@@ -433,7 +433,7 @@ class QuadcopterTier2(VecTask):
             
 
         actions = _actions.to(self.device)
-        print("actions:", actions.shape)
+        # print("actions:", actions.shape)
 
         dof_action_speed_scale = 8 * math.pi
         self.dof_position_targets += self.dt * dof_action_speed_scale * actions[:, 0:8]
@@ -468,31 +468,6 @@ class QuadcopterTier2(VecTask):
         self.check_collisions()
         self.compute_reward()
             
-        if self.enable_onboard_cameras:
-            # Get the depth image from the camera array
-            depth_im = self.full_camera_array[0]
-
-            # The given depth image has shape (270, 480), but we need (1, 1024)
-            # So, first we need to scale it to 32x32 on the GPU
-            depth_im = depth_im.unsqueeze(0).unsqueeze(0)
-            depth_im = torch.nn.functional.interpolate(depth_im, size=(32, 32), mode='bilinear', align_corners=False)
-
-            # Now, the issue is that the depth image has many nan values
-            # So, we need to replace them with 0.0
-            depth_im = torch.where(torch.isnan(depth_im), torch.zeros_like(depth_im), depth_im)
-
-            # Also, the 0-1 range is flipped, so we need to flip it back
-            depth_im = 1.0 - depth_im
-
-            # print("depth_im:", depth_im)
-
-            # Save the 32x32 depth image to a file after certain number of iterations
-            # if self.save_images and self.counter % save_images_every == 0:
-            #     torchvision.utils.save_image(depth_im, "depth_image_tensor_" + str(self.counter) + ".png")
-
-            # Convert to tensor from numpy
-            # Now, we can flatten it to (1, 1024)
-            self.depth_image = depth_im.flatten()
 
         # debug viz
         if self.viewer and self.debug_viz:
@@ -513,26 +488,18 @@ class QuadcopterTier2(VecTask):
 
     def get_current_position(self):
         return self.root_positions
-
-    def get_depth_image(self):
-        return self.depth_image
     
     def render_cameras(self):
         self.gym.render_all_camera_sensors(self.sim)
         self.gym.start_access_image_tensors(self.sim)
-        self.dump_images()
         self.gym.end_access_image_tensors(self.sim)
         return
     
-    def dump_images(self):
-        for env_id in range(self.num_envs):
-            # the depth values are in -ve z axis, so we need to flip it to positive
-            self.full_camera_array[env_id] = -self.camera_tensors[env_id]
-        return
 
     def compute_observations(self):
 
         self.render_cameras()
+        
 
         save_images_every = 5
 
@@ -555,6 +522,28 @@ class QuadcopterTier2(VecTask):
         self.obs_buf[..., 7:10] = self.root_linvels / 2
         self.obs_buf[..., 10:13] = self.root_angvels / math.pi
         self.obs_buf[..., 13:21] = self.dof_positions
+
+        for i in range(self.num_envs):
+            self.depth_image = self.camera_tensors[i]
+            self.depth_image = -self.depth_image
+             # The given depth image has shape (250, 250), but we need (1, 256)
+            # So, first we need to scale it to 16x16 on the GPU
+            depth_im = self.depth_image.unsqueeze(0).unsqueeze(0)
+            depth_im = torch.nn.functional.interpolate(depth_im, size=((self.flat_image_size), (self.flat_image_size)), mode='bilinear', align_corners=False)
+            depth_im = torch.where(torch.isnan(depth_im), torch.zeros_like(depth_im), depth_im)
+            depth_im = torch.where(torch.isinf(depth_im), torch.ones_like(depth_im)*100, depth_im)
+            depth_im = 1.0 - depth_im
+            
+            # Convert to tensor from numpy
+            # Flatten it to (1, 1024)
+            self.depth_image_flat = depth_im.flatten()
+            self.depth_images_tensor[i] = self.depth_image_flat
+
+        print("self.depth_images_tensor:", self.depth_images_tensor.shape)
+        
+        self.obs_buf[..., 21:] = self.depth_images_tensor
+        print("self.obs_buf:", self.obs_buf.shape)
+
         return self.obs_buf
 
     def compute_reward(self):
