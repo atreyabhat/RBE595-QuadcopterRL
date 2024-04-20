@@ -42,6 +42,10 @@ from .humanoid import Humanoid
 from .humanoid_amp import HumanoidAMP
 from .ingenuity import Ingenuity
 from .quadcopter import Quadcopter
+from .quadcopter_tier1 import QuadcopterTier1
+from .quadcopter_tier2 import QuadcopterTier2
+from .quadcopter_tier3 import QuadcopterTier3
+
 from .shadow_hand import ShadowHand
 from .allegro_hand import AllegroHand
 from .dextreme.allegro_hand_dextreme import AllegroHandDextremeManualDR, AllegroHandDextremeADR
@@ -109,6 +113,9 @@ isaacgym_task_map = {
     "HumanoidAMP": HumanoidAMP,
     "Ingenuity": Ingenuity,
     "Quadcopter": Quadcopter,
+    "QuadcopterTier1": QuadcopterTier1,
+    "QuadcopterTier2": QuadcopterTier2,
+    "QuadcopterTier3": QuadcopterTier3,
     "ShadowHand": ShadowHand,
     "Trifinger": Trifinger,
 }

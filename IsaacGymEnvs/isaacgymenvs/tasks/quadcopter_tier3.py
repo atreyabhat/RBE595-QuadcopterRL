@@ -39,7 +39,7 @@ import matplotlib.pyplot as plt
 from PIL import Image as Im
 
 
-class Quadcopter(VecTask):
+class QuadcopterTier3(VecTask):
 
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         self.cfg = cfg
@@ -174,7 +174,7 @@ class Quadcopter(VecTask):
         rotor_arm_radius = 0.01
 
         root = ET.Element('mujoco')
-        root.attrib["model"] = "Quadcopter"
+        root.attrib["model"] = "QuadcopterTier3"
         compiler = ET.SubElement(root, "compiler")
         compiler.attrib["angle"] = "degree"
         compiler.attrib["coordinate"] = "local"

@@ -1,20 +1,44 @@
 # used to create the object
-name: Ingenuity
+name: QuadcopterTier1
 
 physics_engine: ${..physics_engine}
 
-# if given, will override the device setting in gym.
+# if given, will override the device setting in gym. 
 env:
-  numEnvs: ${resolve_default:4096,${...num_envs}}
-  envSpacing: 2.5
-  maxEpisodeLength: 2000
+  numEnvs: 1
+  envSpacing: 1.25
+  maxEpisodeLength: 1000
   enableDebugVis: False
 
   clipObservations: 5.0
   clipActions: 1.0
 
   # set to True if you use camera sensors in the environment
-  enableCameraSensors: False
+  enableCameraSensors: True
+  saveImages: True
+
+  asset:
+    assetRoot: "../../assets"
+    assetFileName: "resources/models/environment_assets/objects/2_x_2_wall.urdf"
+
+  obstacle:
+    startPose:
+      x: -0.5
+      y: 0.0
+      z: 0.0
+      qx: 0.0
+      qy: 2.0
+      qz: 0.0
+      qw: 1.0
+
+camera:
+  cam_resolution: [250, 250]
+
+
+viewer:
+  ref_env : 0
+  pos : [-5, -5, 4]  # [m]
+  lookat : [1, 1, 1]  # [m]
 
 sim:
   dt: 0.01
@@ -26,7 +50,7 @@ sim:
     num_threads: ${....num_threads}
     solver_type: ${....solver_type}
     use_gpu: ${contains:"cuda",${....sim_device}} # set to False to run on CPU
-    num_position_iterations: 6
+    num_position_iterations: 4
     num_velocity_iterations: 0
     contact_offset: 0.02
     rest_offset: 0.001
@@ -36,6 +60,6 @@ sim:
     max_gpu_contact_pairs: 1048576 # 1024*1024
     num_subscenes: ${....num_subscenes}
     contact_collection: 0 # 0: CC_NEVER (don't collect contact info), 1: CC_LAST_SUBSTEP (collect only contacts on last substep), 2: CC_ALL_SUBSTEPS (broken - do not use!)
-
+    
 task:
   randomize: False

@@ -99,7 +99,7 @@ cfg["value_preprocessor_kwargs"] = {"size": 1, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 20
 cfg["experiment"]["checkpoint_interval"] = 200
-cfg["experiment"]["directory"] = "runs/torch/Quadcopter"
+cfg["experiment"]["directory"] = "runs/torch/Quadcopter_PPO"
 
 agent = PPO(models=models,
             memory=memory,
