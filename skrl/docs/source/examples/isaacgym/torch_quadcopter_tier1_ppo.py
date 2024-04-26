@@ -53,7 +53,7 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
 
 
 # load and wrap the Isaac Gym environment
-env = load_isaacgym_env_preview4(task_name="Quadcopter")
+env = load_isaacgym_env_preview4(task_name="QuadcopterTier1")
 env = wrap_env(env)
 
 device = env.device
@@ -97,9 +97,9 @@ cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": dev
 cfg["value_preprocessor"] = RunningStandardScaler
 cfg["value_preprocessor_kwargs"] = {"size": 1, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
-cfg["experiment"]["write_interval"] = 20
-cfg["experiment"]["checkpoint_interval"] = 200
-cfg["experiment"]["directory"] = "runs/torch/Quadcopter_PPO"
+cfg["experiment"]["write_interval"] = 500
+cfg["experiment"]["checkpoint_interval"] = 5000
+cfg["experiment"]["directory"] = "runs/torch/QuadcopterTier1_PPO"
 
 agent = PPO(models=models,
             memory=memory,
@@ -110,18 +110,11 @@ agent = PPO(models=models,
 
 
 # configure and instantiate the RL trainer
-cfg_trainer = {"timesteps": 4000, "headless": True}
+cfg_trainer = {"timesteps": 100000, "headless": True}
 trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
 
 # start training
 trainer.train()
-
-
-# # ---------------------------------------------------------
-# # comment the code above: `trainer.train()`, and...
-# # uncomment the following lines to evaluate a trained agent
-# # ---------------------------------------------------------
-# from skrl.utils.huggingface import download_model_from_huggingface
 
 # # download the trained agent's checkpoint from Hugging Face Hub and load it
 # path = download_model_from_huggingface("skrl/IsaacGymEnvs-Quadcopter-PPO", filename="agent.pt")
