@@ -46,22 +46,28 @@ class QuadcopterTier3(VecTask):
 
         self.max_episode_length = self.cfg["env"]["maxEpisodeLength"]
         self.debug_viz = self.cfg["env"]["enableDebugVis"]
+        
         self.sim_device = sim_device
         self.headless = headless
+        self.flat_image_size = self.cfg["camera"]["flatImageSize"]
 
         dofs_per_env = 8
 
         quad_bodies = 9
         marker_bodies = 1
-        obstacle_bodies = 0
+        obstacle_bodies = 1
 
 
         bodies_per_env = quad_bodies + marker_bodies + obstacle_bodies
+        
+        #rigid body count for each environment
+        n_count = 2 + obstacle_bodies 
+        print("bodies_per_env:", bodies_per_env)
 
         # Observations:
         # 0:13 - root state
         # 13:29 - DOF states
-        num_obs = 21
+        num_obs = 21 + self.flat_image_size**2
 
         # Actions:
         # 0:8 - rotor DOF position targets
@@ -73,7 +79,6 @@ class QuadcopterTier3(VecTask):
         self.num_obstacles = 1
         num_actors = self.num_obstacles + 1
         self.cam_resolution =  self.cfg["camera"]["cam_resolution"]
-        num_obs = 21 + self.cam_resolution[0] * self.cam_resolution[1]
 
         self.enable_onboard_cameras = self.cfg["env"]["enableCameraSensors"]
         self.save_images = self.cfg["env"]["saveImages"]
@@ -85,7 +90,7 @@ class QuadcopterTier3(VecTask):
         self.dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
         self.contact_force_tensor = self.gym.acquire_net_contact_force_tensor(self.sim)
 
-        vec_root_tensor = gymtorch.wrap_tensor(self.root_tensor).view(self.num_envs,2, 13)
+        vec_root_tensor = gymtorch.wrap_tensor(self.root_tensor).view(self.num_envs, n_count , 13)
         vec_dof_tensor = gymtorch.wrap_tensor(self.dof_state_tensor).view(self.num_envs, dofs_per_env, 2)
 
         self.root_states = vec_root_tensor[:, 0, :]
@@ -120,7 +125,7 @@ class QuadcopterTier3(VecTask):
         self.thrusts = torch.zeros((self.num_envs, 4), dtype=torch.float32, device=self.device, requires_grad=False)
         self.forces = torch.zeros((self.num_envs, bodies_per_env, 3), dtype=torch.float32, device=self.device, requires_grad=False)
         self.contact_forces = gymtorch.wrap_tensor(self.contact_force_tensor).view(self.num_envs, bodies_per_env, 3)[:, 0]
-        self.all_actor_indices = torch.arange(self.num_envs * 2, dtype=torch.int32, device=self.device).reshape((self.num_envs, 2))
+        self.all_actor_indices = torch.arange(self.num_envs * 2, dtype=torch.int32, device=self.device).reshape((self.num_envs, -1))
 
         if self.viewer:
             cam_pos = gymapi.Vec3(1.0, 1.0, 1.8)
@@ -145,10 +150,9 @@ class QuadcopterTier3(VecTask):
 
         # Set drone hit ground buffer #FIXME: in tier1, but here should be solved by environment bounds
         self.drone_hit_ground_buf = torch.ones(self.num_envs, device=self.device, dtype=torch.long)
-        self.full_camera_array = torch.zeros((self.num_envs, self.cam_resolution[0], self.cam_resolution[1]), device=self.device)
         self.collisions = torch.zeros(self.num_envs, device=self.device) 
 
-        self.depth_image = torch.zeros((1, 1024), device=self.device)
+        self.depth_images_tensor = torch.zeros((self.num_envs, self.flat_image_size**2), device=self.device)
 
     def create_sim(self):
         self.sim_params.up_axis = gymapi.UP_AXIS_Z
@@ -158,6 +162,8 @@ class QuadcopterTier3(VecTask):
         self.sim = super().create_sim(self.device_id, self.graphics_device_id, self.physics_engine, self.sim_params)
         self.dt = self.sim_params.dt
         self._create_quadcopter_asset()
+
+        
         self._create_ground_plane()
         self._create_envs(self.num_envs, self.cfg["env"]['envSpacing'], int(np.sqrt(self.num_envs)))
 
@@ -174,7 +180,7 @@ class QuadcopterTier3(VecTask):
         rotor_arm_radius = 0.01
 
         root = ET.Element('mujoco')
-        root.attrib["model"] = "QuadcopterTier3"
+        root.attrib["model"] = "QuadcopterTier2"
         compiler = ET.SubElement(root, "compiler")
         compiler.attrib["angle"] = "degree"
         compiler.attrib["coordinate"] = "local"
@@ -267,6 +273,23 @@ class QuadcopterTier3(VecTask):
         asset_options.slices_per_cylinder = 40
         asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
 
+       
+
+        asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
+        if "asset" in self.cfg["env"]:
+            asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.cfg["env"]["asset"].get("assetRoot", asset_root))
+            wall_asset_file = self.cfg["env"]["asset"]["assetFileName"]
+
+        
+        # Create wall asset
+        wall_pos = [1.0, 0.0, 1.0]
+        wall_dim = 2.0
+        wall_thickness = 0.05
+        wall_opts = gymapi.AssetOptions()
+        wall_opts.fix_base_link = True
+        #wall_asset = self.gym.load_asset(self.sim, asset_root, wall_asset_file, wall_opts)
+        wall_asset = self.gym.create_box(self.sim, *[wall_dim, wall_dim, wall_thickness], wall_opts)
+
         self.robot_num_bodies = self.gym.get_asset_rigid_body_count(asset)
         bodies_per_env = self.num_obstacles + self.robot_num_bodies  # Number of links in the environment + robot
 
@@ -296,6 +319,12 @@ class QuadcopterTier3(VecTask):
         default_pose = gymapi.Transform()
         default_pose.p.z = 1.0
 
+        # Define start pose for wall
+        self.wall_start_pose = gymapi.Transform()
+        self.wall_start_pose.p = gymapi.Vec3(*wall_pos)
+        self.wall_start_pose.r = gymapi.Quat(1.0, 0.0, 0.0, 1.0)
+        wall_color = gymapi.Vec3(1.0, 0, 0)
+
         self.envs = []
         self.camera_handles = []
         self.camera_tensors = []
@@ -321,6 +350,9 @@ class QuadcopterTier3(VecTask):
             # create env instance
             env = self.gym.create_env(self.sim, lower, upper, num_per_row)
             actor_handle = self.gym.create_actor(env, asset, default_pose, "quadcopter", i, 1, 0)
+            wall_actor = self.gym.create_actor(env, wall_asset, self.wall_start_pose, "wall", i, 1, 0)
+
+            self.gym.set_rigid_body_color(env, wall_actor, 0, gymapi.MESH_VISUAL, wall_color)
 
             dof_props = self.gym.get_actor_dof_properties(env, actor_handle)
             dof_props['driveMode'].fill(gymapi.DOF_MODE_POS)
@@ -330,6 +362,7 @@ class QuadcopterTier3(VecTask):
 
             marker_handle = self.gym.create_actor(env, marker_asset, default_pose, "marker", i, 1, 1)
             self.gym.set_rigid_body_color(env, marker_handle, 0, gymapi.MESH_VISUAL_AND_COLLISION, gymapi.Vec3(0, 1, 0))
+
 
 
 
@@ -378,10 +411,15 @@ class QuadcopterTier3(VecTask):
     def set_targets(self, env_ids):
         num_sets = len(env_ids)
         # set target position randomly with x, y in (-10, 10) and z in (1, 5)
-        self.target_root_positions[env_ids, 0:2] = (torch.rand(num_sets, 2, device=self.device) * 20) - 10
+        self.target_root_positions[env_ids, 0] = torch.FloatTensor(num_sets,).uniform_(-1, 1)
+        self.target_root_positions[env_ids, 1] =  torch.FloatTensor(num_sets,).uniform_(-1, 1)
+
+        #self.target_root_positions[env_ids, 0:2] = (torch.rand(num_sets, 2, device=self.device) * 2) - 1
         self.target_root_positions[env_ids, 2] = torch.rand(num_sets, device=self.device) * 4 + 1
         self.marker_positions[env_ids] = self.target_root_positions[env_ids]
         actor_indices = self.all_actor_indices[env_ids, 1].flatten()
+
+        print("Current marker positions:", self.marker_positions[env_ids])
 
         return actor_indices
 
@@ -396,11 +434,18 @@ class QuadcopterTier3(VecTask):
 
         actor_indices = self.all_actor_indices[env_ids].flatten()
 
+        prop_indices = self.all_actor_indices[env_ids, 1].flatten()
+        print("prop_indices:", prop_indices)
+
         self.root_states[env_ids] = self.initial_root_states[env_ids]
         self.root_states[env_ids, 0] += torch_rand_float(-1.5, 1.5, (num_resets, 1), self.device).flatten()
         self.root_states[env_ids, 1] += torch_rand_float(-1.5, 1.5, (num_resets, 1), self.device).flatten()
         self.root_states[env_ids, 2] += torch_rand_float(-0.2, 1.5, (num_resets, 1), self.device).flatten()
         self.gym.set_actor_root_state_tensor_indexed(self.sim, self.root_tensor, gymtorch.unwrap_tensor(actor_indices), num_resets)
+
+        # self.gym.set_actor_root_state_tensor_indexed(self.sim,
+        #                                             self.root_tensor,
+        #                                              gymtorch.unwrap_tensor(prop_indices), len(prop_indices))
 
         self.dof_positions[env_ids] = torch_rand_float(-0.2, 0.2, (num_resets, 8), self.device)
         self.dof_velocities[env_ids] = 0.0
@@ -411,7 +456,7 @@ class QuadcopterTier3(VecTask):
 
         self.last_reset_counter = self.counter
 
-        return torch.unique(torch.cat([target_actor_indices, actor_indices]))
+        # return torch.unique(torch.cat([target_actor_indices, actor_indices]))
 
 
     def pre_physics_step(self, _actions):
@@ -433,7 +478,7 @@ class QuadcopterTier3(VecTask):
             
 
         actions = _actions.to(self.device)
-        print("actions:", actions.shape)
+        # print("actions:", actions.shape)
 
         dof_action_speed_scale = 8 * math.pi
         self.dof_position_targets += self.dt * dof_action_speed_scale * actions[:, 0:8]
@@ -468,31 +513,6 @@ class QuadcopterTier3(VecTask):
         self.check_collisions()
         self.compute_reward()
             
-        if self.enable_onboard_cameras:
-            # Get the depth image from the camera array
-            depth_im = self.full_camera_array[0]
-
-            # The given depth image has shape (270, 480), but we need (1, 1024)
-            # So, first we need to scale it to 32x32 on the GPU
-            depth_im = depth_im.unsqueeze(0).unsqueeze(0)
-            depth_im = torch.nn.functional.interpolate(depth_im, size=(32, 32), mode='bilinear', align_corners=False)
-
-            # Now, the issue is that the depth image has many nan values
-            # So, we need to replace them with 0.0
-            depth_im = torch.where(torch.isnan(depth_im), torch.zeros_like(depth_im), depth_im)
-
-            # Also, the 0-1 range is flipped, so we need to flip it back
-            depth_im = 1.0 - depth_im
-
-            # print("depth_im:", depth_im)
-
-            # Save the 32x32 depth image to a file after certain number of iterations
-            # if self.save_images and self.counter % save_images_every == 0:
-            #     torchvision.utils.save_image(depth_im, "depth_image_tensor_" + str(self.counter) + ".png")
-
-            # Convert to tensor from numpy
-            # Now, we can flatten it to (1, 1024)
-            self.depth_image = depth_im.flatten()
 
         # debug viz
         if self.viewer and self.debug_viz:
@@ -513,26 +533,18 @@ class QuadcopterTier3(VecTask):
 
     def get_current_position(self):
         return self.root_positions
-
-    def get_depth_image(self):
-        return self.depth_image
     
     def render_cameras(self):
         self.gym.render_all_camera_sensors(self.sim)
         self.gym.start_access_image_tensors(self.sim)
-        self.dump_images()
         self.gym.end_access_image_tensors(self.sim)
         return
     
-    def dump_images(self):
-        for env_id in range(self.num_envs):
-            # the depth values are in -ve z axis, so we need to flip it to positive
-            self.full_camera_array[env_id] = -self.camera_tensors[env_id]
-        return
 
     def compute_observations(self):
 
         self.render_cameras()
+        
 
         save_images_every = 5
 
@@ -555,6 +567,28 @@ class QuadcopterTier3(VecTask):
         self.obs_buf[..., 7:10] = self.root_linvels / 2
         self.obs_buf[..., 10:13] = self.root_angvels / math.pi
         self.obs_buf[..., 13:21] = self.dof_positions
+
+        for i in range(self.num_envs):
+            self.depth_image = self.camera_tensors[i]
+            self.depth_image = -self.depth_image
+             # The given depth image has shape (250, 250), but we need (1, 256)
+            # So, first we need to scale it to 16x16 on the GPU
+            depth_im = self.depth_image.unsqueeze(0).unsqueeze(0)
+            depth_im = torch.nn.functional.interpolate(depth_im, size=((self.flat_image_size), (self.flat_image_size)), mode='bilinear', align_corners=False)
+            depth_im = torch.where(torch.isnan(depth_im), torch.zeros_like(depth_im), depth_im)
+            depth_im = torch.where(torch.isinf(depth_im), torch.ones_like(depth_im)*100, depth_im)
+            depth_im = 1.0 - depth_im
+            
+            # Convert to tensor from numpy
+            # Flatten it to (1, 1024)
+            self.depth_image_flat = depth_im.flatten()
+            self.depth_images_tensor[i] = self.depth_image_flat
+
+        print("self.depth_images_tensor:", self.depth_images_tensor.shape)
+        
+        self.obs_buf[..., 21:] = self.depth_images_tensor
+        print("self.obs_buf:", self.obs_buf.shape)
+
         return self.obs_buf
 
     def compute_reward(self):

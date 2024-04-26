@@ -55,10 +55,14 @@ class QuadcopterTier2(VecTask):
 
         quad_bodies = 9
         marker_bodies = 1
-        obstacle_bodies = 0
+        obstacle_bodies = 1
 
 
         bodies_per_env = quad_bodies + marker_bodies + obstacle_bodies
+        
+        #rigid body count for each environment
+        n_count = 2 + obstacle_bodies 
+        print("bodies_per_env:", bodies_per_env)
 
         # Observations:
         # 0:13 - root state
@@ -86,7 +90,7 @@ class QuadcopterTier2(VecTask):
         self.dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
         self.contact_force_tensor = self.gym.acquire_net_contact_force_tensor(self.sim)
 
-        vec_root_tensor = gymtorch.wrap_tensor(self.root_tensor).view(self.num_envs,2, 13)
+        vec_root_tensor = gymtorch.wrap_tensor(self.root_tensor).view(self.num_envs, n_count , 13)
         vec_dof_tensor = gymtorch.wrap_tensor(self.dof_state_tensor).view(self.num_envs, dofs_per_env, 2)
 
         self.root_states = vec_root_tensor[:, 0, :]
@@ -121,7 +125,7 @@ class QuadcopterTier2(VecTask):
         self.thrusts = torch.zeros((self.num_envs, 4), dtype=torch.float32, device=self.device, requires_grad=False)
         self.forces = torch.zeros((self.num_envs, bodies_per_env, 3), dtype=torch.float32, device=self.device, requires_grad=False)
         self.contact_forces = gymtorch.wrap_tensor(self.contact_force_tensor).view(self.num_envs, bodies_per_env, 3)[:, 0]
-        self.all_actor_indices = torch.arange(self.num_envs * 2, dtype=torch.int32, device=self.device).reshape((self.num_envs, 2))
+        self.all_actor_indices = torch.arange(self.num_envs * 2, dtype=torch.int32, device=self.device).reshape((self.num_envs, -1))
 
         if self.viewer:
             cam_pos = gymapi.Vec3(1.0, 1.0, 1.8)
@@ -158,6 +162,8 @@ class QuadcopterTier2(VecTask):
         self.sim = super().create_sim(self.device_id, self.graphics_device_id, self.physics_engine, self.sim_params)
         self.dt = self.sim_params.dt
         self._create_quadcopter_asset()
+
+        
         self._create_ground_plane()
         self._create_envs(self.num_envs, self.cfg["env"]['envSpacing'], int(np.sqrt(self.num_envs)))
 
@@ -267,6 +273,23 @@ class QuadcopterTier2(VecTask):
         asset_options.slices_per_cylinder = 40
         asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
 
+       
+
+        asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
+        if "asset" in self.cfg["env"]:
+            asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.cfg["env"]["asset"].get("assetRoot", asset_root))
+            wall_asset_file = self.cfg["env"]["asset"]["assetFileName"]
+
+        
+        # Create wall asset
+        wall_pos = [1.0, 0.0, 1.0]
+        wall_dim = 2.0
+        wall_thickness = 0.05
+        wall_opts = gymapi.AssetOptions()
+        wall_opts.fix_base_link = True
+        #wall_asset = self.gym.load_asset(self.sim, asset_root, wall_asset_file, wall_opts)
+        wall_asset = self.gym.create_box(self.sim, *[wall_dim, wall_dim, wall_thickness], wall_opts)
+
         self.robot_num_bodies = self.gym.get_asset_rigid_body_count(asset)
         bodies_per_env = self.num_obstacles + self.robot_num_bodies  # Number of links in the environment + robot
 
@@ -296,6 +319,12 @@ class QuadcopterTier2(VecTask):
         default_pose = gymapi.Transform()
         default_pose.p.z = 1.0
 
+        # Define start pose for wall
+        self.wall_start_pose = gymapi.Transform()
+        self.wall_start_pose.p = gymapi.Vec3(*wall_pos)
+        self.wall_start_pose.r = gymapi.Quat(1.0, 0.0, 0.0, 1.0)
+        wall_color = gymapi.Vec3(1.0, 0, 0)
+
         self.envs = []
         self.camera_handles = []
         self.camera_tensors = []
@@ -321,6 +350,9 @@ class QuadcopterTier2(VecTask):
             # create env instance
             env = self.gym.create_env(self.sim, lower, upper, num_per_row)
             actor_handle = self.gym.create_actor(env, asset, default_pose, "quadcopter", i, 1, 0)
+            wall_actor = self.gym.create_actor(env, wall_asset, self.wall_start_pose, "wall", i, 1, 0)
+
+            self.gym.set_rigid_body_color(env, wall_actor, 0, gymapi.MESH_VISUAL, wall_color)
 
             dof_props = self.gym.get_actor_dof_properties(env, actor_handle)
             dof_props['driveMode'].fill(gymapi.DOF_MODE_POS)
@@ -330,6 +362,7 @@ class QuadcopterTier2(VecTask):
 
             marker_handle = self.gym.create_actor(env, marker_asset, default_pose, "marker", i, 1, 1)
             self.gym.set_rigid_body_color(env, marker_handle, 0, gymapi.MESH_VISUAL_AND_COLLISION, gymapi.Vec3(0, 1, 0))
+
 
 
 
@@ -378,10 +411,15 @@ class QuadcopterTier2(VecTask):
     def set_targets(self, env_ids):
         num_sets = len(env_ids)
         # set target position randomly with x, y in (-10, 10) and z in (1, 5)
-        self.target_root_positions[env_ids, 0:2] = (torch.rand(num_sets, 2, device=self.device) * 20) - 10
+        self.target_root_positions[env_ids, 0] = torch.FloatTensor(num_sets,).uniform_(-1, 1)
+        self.target_root_positions[env_ids, 1] =  torch.FloatTensor(num_sets,).uniform_(-1, 1)
+
+        #self.target_root_positions[env_ids, 0:2] = (torch.rand(num_sets, 2, device=self.device) * 2) - 1
         self.target_root_positions[env_ids, 2] = torch.rand(num_sets, device=self.device) * 4 + 1
         self.marker_positions[env_ids] = self.target_root_positions[env_ids]
         actor_indices = self.all_actor_indices[env_ids, 1].flatten()
+
+        print("Current marker positions:", self.marker_positions[env_ids])
 
         return actor_indices
 
@@ -396,11 +434,18 @@ class QuadcopterTier2(VecTask):
 
         actor_indices = self.all_actor_indices[env_ids].flatten()
 
+        prop_indices = self.all_actor_indices[env_ids, 1].flatten()
+        print("prop_indices:", prop_indices)
+
         self.root_states[env_ids] = self.initial_root_states[env_ids]
         self.root_states[env_ids, 0] += torch_rand_float(-1.5, 1.5, (num_resets, 1), self.device).flatten()
         self.root_states[env_ids, 1] += torch_rand_float(-1.5, 1.5, (num_resets, 1), self.device).flatten()
         self.root_states[env_ids, 2] += torch_rand_float(-0.2, 1.5, (num_resets, 1), self.device).flatten()
         self.gym.set_actor_root_state_tensor_indexed(self.sim, self.root_tensor, gymtorch.unwrap_tensor(actor_indices), num_resets)
+
+        # self.gym.set_actor_root_state_tensor_indexed(self.sim,
+        #                                             self.root_tensor,
+        #                                              gymtorch.unwrap_tensor(prop_indices), len(prop_indices))
 
         self.dof_positions[env_ids] = torch_rand_float(-0.2, 0.2, (num_resets, 8), self.device)
         self.dof_velocities[env_ids] = 0.0
@@ -411,7 +456,7 @@ class QuadcopterTier2(VecTask):
 
         self.last_reset_counter = self.counter
 
-        return torch.unique(torch.cat([target_actor_indices, actor_indices]))
+        # return torch.unique(torch.cat([target_actor_indices, actor_indices]))
 
 
     def pre_physics_step(self, _actions):
