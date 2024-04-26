@@ -53,7 +53,7 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
 
 
 # load and wrap the Isaac Gym environment
-env = load_isaacgym_env_preview4(task_name="Quadcopter")
+env = load_isaacgym_env_preview4(task_name="QuadcopterTier1")
 env = wrap_env(env)
 
 device = env.device
@@ -79,7 +79,7 @@ cfg["learning_epochs"] = 8
 cfg["mini_batches"] = 4  # 8 * 8192 / 16384
 cfg["discount_factor"] = 0.99
 cfg["lambda"] = 0.95
-cfg["learning_rate"] = 1e-3
+cfg["learning_rate"] = 0.01
 cfg["learning_rate_scheduler"] = KLAdaptiveRL
 cfg["learning_rate_scheduler_kwargs"] = {"kl_threshold": 0.016}
 cfg["random_timesteps"] = 0
@@ -99,7 +99,7 @@ cfg["value_preprocessor_kwargs"] = {"size": 1, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 500
 cfg["experiment"]["checkpoint_interval"] = 5000
-cfg["experiment"]["directory"] = "runs/torch/Quadcopter_PPO"
+cfg["experiment"]["directory"] = "runs/torch/Quadcopter_Tier1_PPO"
 
 agent = PPO(models=models,
             memory=memory,
@@ -113,18 +113,11 @@ agent = PPO(models=models,
 cfg_trainer = {"timesteps": 200000, "headless": True}
 trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
 
-agent.load("runs/torch/Quadcopter_PPO/24-04-26_16-05-18-338419_PPO/checkpoints/agent_60000.pt")
+agent.load("runs/torch/Quadcopter_Tier1_PPO/24-04-26_17-50-28-357871_PPO/checkpoints/agent_100000.pt")
 
 
 # start training
 trainer.train()
-
-
-# # ---------------------------------------------------------
-# # comment the code above: `trainer.train()`, and...
-# # uncomment the following lines to evaluate a trained agent
-# # ---------------------------------------------------------
-# from skrl.utils.huggingface import download_model_from_huggingface
 
 # # download the trained agent's checkpoint from Hugging Face Hub and load it
 # path = ("project/RBE595-QuadcopterRL/skrl/docs/source/examples/isaacgym/runs/torch/QuadcopterTier1_DQN/24-04-26_15-27-28-741885_DQN/checkpoints/agent_50000.pt")

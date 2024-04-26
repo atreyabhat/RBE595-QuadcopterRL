@@ -116,7 +116,7 @@ class QuadcopterTier1(VecTask):
 
         # control tensors
         self.dof_position_targets = torch.zeros((self.num_envs, dofs_per_env), dtype=torch.float32, device=self.device, requires_grad=False)
-        print("self.dof_position_targets:", self.dof_position_targets.shape)
+        # print("self.dof_position_targets:", self.dof_position_targets.shape)
         self.thrusts = torch.zeros((self.num_envs, 4), dtype=torch.float32, device=self.device, requires_grad=False)
         self.forces = torch.zeros((self.num_envs, bodies_per_env, 3), dtype=torch.float32, device=self.device, requires_grad=False)
         self.contact_forces = gymtorch.wrap_tensor(self.contact_force_tensor).view(self.num_envs, bodies_per_env, 3)[:, 0]
@@ -433,7 +433,7 @@ class QuadcopterTier1(VecTask):
             
 
         actions = _actions.to(self.device)
-        print("actions:", actions.shape)
+        # print("actions:", actions.shape)
 
         dof_action_speed_scale = 8 * math.pi
         self.dof_position_targets += self.dt * dof_action_speed_scale * actions[:, 0:8]
@@ -622,7 +622,7 @@ def compute_quadcopter_reward(root_positions, target_root_positions, root_quats,
     target_dist = torch.sqrt(torch.square(target_root_positions[:, 0] - root_positions[:, 0]) + torch.square(target_root_positions[:, 1] - root_positions[:, 1]) \
                                     + torch.square(target_root_positions[:, 2] - root_positions[:, 2]))
     # target_dist = torch.sqrt(torch.square(target_root_positions - root_positions).sum(-1))
-    print("target_dis", target_dist)
+    # print("target_dis", target_dist)
     pos_reward = 1.0 / (1.0 + target_dist * target_dist)
 
     # uprightness

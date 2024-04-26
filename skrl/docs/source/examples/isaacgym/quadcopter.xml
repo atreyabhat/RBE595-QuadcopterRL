@@ -1,4 +1,4 @@
-<mujoco model="Quadcopter">
+<mujoco model="QuadcopterTier1">
   <compiler angle="degree" coordinate="local" inertiafromgeom="true" />
   <worldbody>
     <body name="chassis" pos="0 0 0">
