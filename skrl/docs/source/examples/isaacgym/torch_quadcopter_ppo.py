@@ -97,8 +97,8 @@ cfg["state_preprocessor_kwargs"] = {"size": env.observation_space, "device": dev
 cfg["value_preprocessor"] = RunningStandardScaler
 cfg["value_preprocessor_kwargs"] = {"size": 1, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
-cfg["experiment"]["write_interval"] = 20
-cfg["experiment"]["checkpoint_interval"] = 200
+cfg["experiment"]["write_interval"] = 500
+cfg["experiment"]["checkpoint_interval"] = 5000
 cfg["experiment"]["directory"] = "runs/torch/Quadcopter_PPO"
 
 agent = PPO(models=models,
@@ -110,8 +110,11 @@ agent = PPO(models=models,
 
 
 # configure and instantiate the RL trainer
-cfg_trainer = {"timesteps": 4000, "headless": True}
+cfg_trainer = {"timesteps": 200000, "headless": True}
 trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
+
+agent.load("runs/torch/Quadcopter_PPO/24-04-26_16-05-18-338419_PPO/checkpoints/agent_60000.pt")
+
 
 # start training
 trainer.train()
@@ -124,8 +127,7 @@ trainer.train()
 # from skrl.utils.huggingface import download_model_from_huggingface
 
 # # download the trained agent's checkpoint from Hugging Face Hub and load it
-# path = download_model_from_huggingface("skrl/IsaacGymEnvs-Quadcopter-PPO", filename="agent.pt")
-# agent.load(path)
+# path = ("project/RBE595-QuadcopterRL/skrl/docs/source/examples/isaacgym/runs/torch/QuadcopterTier1_DQN/24-04-26_15-27-28-741885_DQN/checkpoints/agent_50000.pt")
 
 # # start evaluation
 # trainer.eval()

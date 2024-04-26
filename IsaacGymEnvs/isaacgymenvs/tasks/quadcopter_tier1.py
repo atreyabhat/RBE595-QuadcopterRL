@@ -543,9 +543,9 @@ class QuadcopterTier1(VecTask):
             self.gym.write_camera_image_to_file(self.sim, self.envs[0], self.camera_handles[0], gymapi.IMAGE_COLOR,
                                                 "rgb_image_" + str(self.counter) + ".png")
             
-        if self.viewer:
-            self.camera_rgba_debug_fig = plt.figure("CAMERA_DEBUG")
-            self.camera_visulization()
+        # if self.viewer:
+        #     self.camera_rgba_debug_fig = plt.figure("CAMERA_DEBUG")
+        #     self.camera_visulization()
            
         target_x = 0.0
         target_y = 0.0
@@ -602,7 +602,9 @@ def quat_rotate(q, v):
 
 
 @torch.jit.script
-def quat_axis(q, axis=0):
+def quat_axis(q, axis=0): # if self.viewer:
+        #     self.camera_rgba_debug_fig = plt.figure("CAMERA_DEBUG")
+        #     self.camera_visulization()
     # type: (Tensor, int) -> Tensor
     basis_vec = torch.zeros(q.shape[0], 3, device=q.device)
     basis_vec[:, axis] = 1
@@ -614,7 +616,13 @@ def compute_quadcopter_reward(root_positions, target_root_positions, root_quats,
     # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float) -> Tuple[Tensor, Tensor]
 
     # distance to target
-    target_dist = torch.sqrt(torch.square(target_root_positions - root_positions).sum(-1))
+    # print("target_root_positions" + str(target_root_positions))
+    # print("root_positions" + str(root_positions))
+
+    target_dist = torch.sqrt(torch.square(target_root_positions[:, 0] - root_positions[:, 0]) + torch.square(target_root_positions[:, 1] - root_positions[:, 1]) \
+                                    + torch.square(target_root_positions[:, 2] - root_positions[:, 2]))
+    # target_dist = torch.sqrt(torch.square(target_root_positions - root_positions).sum(-1))
+    print("target_dis", target_dist)
     pos_reward = 1.0 / (1.0 + target_dist * target_dist)
 
     # uprightness

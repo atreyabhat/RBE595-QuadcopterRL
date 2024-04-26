@@ -20,24 +20,9 @@ Classifier: Programming Language :: Python :: 3
 Classifier: Operating System :: OS Independent
 Requires-Python: >=3.6
 Description-Content-Type: text/markdown
-Requires-Dist: gym
-Requires-Dist: gymnasium
-Requires-Dist: tqdm
-Requires-Dist: packaging
-Requires-Dist: tensorboard
 Provides-Extra: torch
-Requires-Dist: torch>=1.9; extra == "torch"
 Provides-Extra: jax
-Requires-Dist: jax>=0.4.3; extra == "jax"
-Requires-Dist: jaxlib>=0.4.3; extra == "jax"
-Requires-Dist: flax; extra == "jax"
-Requires-Dist: optax; extra == "jax"
 Provides-Extra: all
-Requires-Dist: torch>=1.9; extra == "all"
-Requires-Dist: jax>=0.4.3; extra == "all"
-Requires-Dist: jaxlib>=0.4.3; extra == "all"
-Requires-Dist: flax; extra == "all"
-Requires-Dist: optax; extra == "all"
 
 [![pypi](https://img.shields.io/pypi/v/skrl)](https://pypi.org/project/skrl)
 [<img src="https://img.shields.io/badge/%F0%9F%A4%97%20models-hugging%20face-F8D521">](https://huggingface.co/skrl)

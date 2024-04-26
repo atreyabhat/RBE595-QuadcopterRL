@@ -74,8 +74,12 @@ agent = DQN(models=models,
 
 
 # configure and instantiate the RL trainer
-cfg_trainer = {"timesteps": 50000, "headless": True}
+cfg_trainer = {"timesteps": 200000, "headless": True}
 trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=[agent])
+
+agent.load("runs/torch/QuadcopterTier1_DQN/24-04-26_15-27-28-741885_DQN/checkpoints/agent_50000.pt")
 
 # start training
 trainer.train()
+
+# trainer.eval()
