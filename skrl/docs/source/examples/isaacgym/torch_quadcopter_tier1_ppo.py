@@ -113,14 +113,14 @@ agent = PPO(models=models,
 cfg_trainer = {"timesteps": 200000, "headless": True}
 trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
 
-agent.load("runs/torch/Quadcopter_Tier1_PPO/24-04-26_17-50-28-357871_PPO/checkpoints/agent_100000.pt")
+agent.load("runs/torch/Quadcopter_Tier1_PPO/24-04-26_19-06-44-822142_PPO/checkpoints/agent_200000.pt")
 
 
 # start training
-trainer.train()
+# trainer.train()
 
 # # download the trained agent's checkpoint from Hugging Face Hub and load it
 # path = ("project/RBE595-QuadcopterRL/skrl/docs/source/examples/isaacgym/runs/torch/QuadcopterTier1_DQN/24-04-26_15-27-28-741885_DQN/checkpoints/agent_50000.pt")
 
 # # start evaluation
-# trainer.eval()
+trainer.eval()

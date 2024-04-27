@@ -42,6 +42,7 @@ from PIL import Image as Im
 class QuadcopterTier1(VecTask):
 
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
+        print("im in the init function")
         self.cfg = cfg
 
         self.max_episode_length = self.cfg["env"]["maxEpisodeLength"]
@@ -98,7 +99,8 @@ class QuadcopterTier1(VecTask):
         self.target_root_positions[:, 2] = 1
 
         self.marker_states = vec_root_tensor[:, 1, :]
-        self.marker_positions = self.marker_states[:, 0:3]
+        self.marker_positions = (torch.rand(1, 3, device=self.device) * 20) * 0 #self.marker_states[:, 0:3]
+        self.marker_positions[0, 2] = torch.rand(1, device=self.device) * 0 + 5
 
         self.dof_states = vec_dof_tensor
         self.dof_positions = vec_dof_tensor[..., 0]
@@ -378,8 +380,8 @@ class QuadcopterTier1(VecTask):
     def set_targets(self, env_ids):
         num_sets = len(env_ids)
         # set target position randomly with x, y in (-10, 10) and z in (1, 5)
-        self.target_root_positions[env_ids, 0:2] = (torch.rand(num_sets, 2, device=self.device) * 20) - 10
-        self.target_root_positions[env_ids, 2] = torch.rand(num_sets, device=self.device) * 4 + 1
+        self.target_root_positions[env_ids, 0:2] = (torch.rand(num_sets, 2, device=self.device) * 20) * 0
+        self.target_root_positions[env_ids, 2] = torch.rand(num_sets, device=self.device) * 0 + 5
         self.marker_positions[env_ids] = self.target_root_positions[env_ids]
         actor_indices = self.all_actor_indices[env_ids, 1].flatten()
 
@@ -459,6 +461,7 @@ class QuadcopterTier1(VecTask):
 
     def post_physics_step(self):
 
+        print("marker POs", self.marker_positions)
         self.progress_buf += 1
 
         self.gym.refresh_actor_root_state_tensor(self.sim)

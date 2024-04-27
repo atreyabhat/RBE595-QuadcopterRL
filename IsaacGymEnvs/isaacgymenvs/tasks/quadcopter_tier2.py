@@ -42,8 +42,9 @@ from PIL import Image as Im
 class QuadcopterTier2(VecTask):
 
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
+        print("I'm in the in the init fun")
+        
         self.cfg = cfg
-
         self.max_episode_length = self.cfg["env"]["maxEpisodeLength"]
         self.debug_viz = self.cfg["env"]["enableDebugVis"]
         
@@ -422,6 +423,21 @@ class QuadcopterTier2(VecTask):
         print("Current marker positions:", self.marker_positions[env_ids])
 
         return actor_indices
+    
+    def set_random_target(self, env_ids):
+        num_sets = len(env_ids)
+        
+        # set target position randomly with x, y in (-10, 10) and z in (1, 5)
+        self.target_root_positions[env_ids, 0] = torch.FloatTensor(num_sets,).uniform_(-1, 1)
+        self.target_root_positions[env_ids, 1] =  torch.FloatTensor(num_sets,).uniform_(-1, 1)
+
+        #self.target_root_positions[env_ids, 0:2] = (torch.rand(num_sets, 2, device=self.device) * 2) - 1
+        self.target_root_positions[env_ids, 2] = torch.rand(num_sets, device=self.device) * 4 + 1
+        self.marker_positions[env_ids] = self.target_root_positions[env_ids]
+        
+        actor_indices = self.all_actor_indices[env_ids, 1].flatten()
+        
+        return actor_indices
 
 
     def reset_idx(self, env_ids):
@@ -559,9 +575,6 @@ class QuadcopterTier2(VecTask):
             self.camera_rgba_debug_fig = plt.figure("CAMERA_DEBUG")
             self.camera_visulization()
            
-        target_x = 0.0
-        target_y = 0.0
-        target_z = 1.0
         self.obs_buf[..., 0:3] = (self.target_root_positions - self.root_positions) / 3
         self.obs_buf[..., 3:7] = self.root_quats
         self.obs_buf[..., 7:10] = self.root_linvels / 2
