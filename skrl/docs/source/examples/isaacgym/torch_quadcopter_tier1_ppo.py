@@ -113,7 +113,7 @@ agent = PPO(models=models,
 cfg_trainer = {"timesteps": 200000, "headless": True}
 trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
 
-agent.load("runs/torch/Quadcopter_Tier1_PPO/24-04-26_19-06-44-822142_PPO/checkpoints/agent_200000.pt")
+agent.load("runs/torch/Quadcopter_Tier1_PPO/24-04-26_19-06-44-822142_PPO/checkpoints/tier1_opt_agent_26_4_9pm.pt")
 
 
 # start training

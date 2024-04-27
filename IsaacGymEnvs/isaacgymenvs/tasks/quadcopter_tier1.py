@@ -98,7 +98,7 @@ class QuadcopterTier1(VecTask):
         self.target_root_positions = torch.zeros((self.num_envs, 3), device=self.device, dtype=torch.float32)
         self.target_root_positions[:, 2] = 1
 
-        self.marker_states = vec_root_tensor[:, 1, :]
+        # self.marker_states = vec_root_tensor[:, 1, :]
         self.marker_positions = (torch.rand(1, 3, device=self.device) * 20) * 0 #self.marker_states[:, 0:3]
         self.marker_positions[0, 2] = torch.rand(1, device=self.device) * 0 + 5
 
@@ -273,7 +273,7 @@ class QuadcopterTier1(VecTask):
         bodies_per_env = self.num_obstacles + self.robot_num_bodies  # Number of links in the environment + robot
 
         asset_options.fix_base_link = True
-        marker_asset = self.gym.create_sphere(self.sim, 0.1, asset_options)
+        marker_asset = self.gym.create_sphere(self.sim, 0.00001, asset_options)
 
 
         # self.obs_num_bodies = self.gym.get_asset_rigid_body_count(obs_assets[0])
@@ -292,11 +292,13 @@ class QuadcopterTier1(VecTask):
         self.dof_upper_limits = to_torch(self.dof_upper_limits, device=self.device)
         self.dof_ranges = self.dof_upper_limits - self.dof_lower_limits
 
-        marker_asset = self.gym.create_sphere(self.sim, 0.1, asset_options)
+        marker_asset = self.gym.create_sphere(self.sim, 0.003, asset_options)
 
-
-        default_pose = gymapi.Transform()
-        default_pose.p.z = 1.0
+        # this is the z pose it was using # wrong # bug
+        self.default_pose = gymapi.Transform()
+        self.default_pose.p.z = 5
+        self.default_pose.p.x = 0
+        self.default_pose.p.y = 0
 
         self.envs = []
         self.camera_handles = []
@@ -322,7 +324,7 @@ class QuadcopterTier1(VecTask):
         for i in range(self.num_envs):
             # create env instance
             env = self.gym.create_env(self.sim, lower, upper, num_per_row)
-            actor_handle = self.gym.create_actor(env, asset, default_pose, "quadcopter", i, 1, 0)
+            actor_handle = self.gym.create_actor(env, asset, self.default_pose, "quadcopter", i, 1, 0)
 
             dof_props = self.gym.get_actor_dof_properties(env, actor_handle)
             dof_props['driveMode'].fill(gymapi.DOF_MODE_POS)
@@ -330,7 +332,7 @@ class QuadcopterTier1(VecTask):
             dof_props['damping'].fill(0.0)
             self.gym.set_actor_dof_properties(env, actor_handle, dof_props)
 
-            marker_handle = self.gym.create_actor(env, marker_asset, default_pose, "marker", i, 1, 1)
+            marker_handle = self.gym.create_actor(env, marker_asset, self.default_pose, "marker", i, 1, 1)
             self.gym.set_rigid_body_color(env, marker_handle, 0, gymapi.MESH_VISUAL_AND_COLLISION, gymapi.Vec3(0, 1, 0))
 
 
@@ -382,6 +384,7 @@ class QuadcopterTier1(VecTask):
         # set target position randomly with x, y in (-10, 10) and z in (1, 5)
         self.target_root_positions[env_ids, 0:2] = (torch.rand(num_sets, 2, device=self.device) * 20) * 0
         self.target_root_positions[env_ids, 2] = torch.rand(num_sets, device=self.device) * 0 + 5
+        print("target_loc", self.target_root_positions)
         self.marker_positions[env_ids] = self.target_root_positions[env_ids]
         actor_indices = self.all_actor_indices[env_ids, 1].flatten()
 
@@ -461,7 +464,7 @@ class QuadcopterTier1(VecTask):
 
     def post_physics_step(self):
 
-        print("marker POs", self.marker_positions)
+        # print("marker POs", self.marker_positions)
         self.progress_buf += 1
 
         self.gym.refresh_actor_root_state_tensor(self.sim)
@@ -550,10 +553,7 @@ class QuadcopterTier1(VecTask):
         #     self.camera_rgba_debug_fig = plt.figure("CAMERA_DEBUG")
         #     self.camera_visulization()
            
-        target_x = 0.0
-        target_y = 0.0
-        target_z = 1.0
-        self.obs_buf[..., 0:3] = (self.target_root_positions - self.root_positions) / 3
+        self.obs_buf[..., 0:3] = (self.target_root_positions - self.root_positions)
         self.obs_buf[..., 3:7] = self.root_quats
         self.obs_buf[..., 7:10] = self.root_linvels / 2
         self.obs_buf[..., 10:13] = self.root_angvels / math.pi
