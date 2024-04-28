@@ -111,10 +111,9 @@ class Env(ABC):
         self.num_actions = config["env"]["numActions"]
         self.control_freq_inv = config["env"].get("controlFrequencyInv", 1)
 
-        #self.act_space = spaces.Box(np.ones(self.num_actions) * -1., np.ones(self.num_actions) * 1.)
+        self.act_space = spaces.Box(np.ones(self.num_actions) * -1., np.ones(self.num_actions) * 1.)
 
-        self.act_space = Discrete(self.num_actions, start=0)
-        print("helllllllllllllllllllllllllll",self.act_space.sample())
+        #self.act_space = spaces.Discrete(self.num_actions, start=0)
 
         self.clip_obs = config["env"].get("clipObservations", np.Inf)
         self.clip_actions = config["env"].get("clipActions", np.Inf)
@@ -208,7 +207,7 @@ class Env(ABC):
         pass
 
 
-class VecTaskNew(Env):
+class VecTask(Env):
 
     metadata = {"render.modes": ["human", "rgb_array"], "video.frames_per_second": 24}
 
@@ -375,7 +374,7 @@ class VecTaskNew(Env):
         if self.dr_randomizations.get('actions', None):
             actions = self.dr_randomizations['actions']['noise_lambda'](actions)
 
-        action_tensor = torch.clamp(actions, -self.clip_actions, self.clip_actions)
+        action_tensor = torch.clamp(actions, 0, self.clip_actions)
         # apply actions
         self.pre_physics_step(action_tensor)
 
