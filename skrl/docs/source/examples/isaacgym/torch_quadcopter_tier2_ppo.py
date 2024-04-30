@@ -18,7 +18,6 @@ from skrl.utils import set_seed
 # seed for reproducibility
 set_seed()  # e.g. `set_seed(42)` for fixed seed
 
-
 # define shared model (stochastic and deterministic models) using mixins
 class Shared(GaussianMixin, DeterministicMixin, Model):
     def __init__(self, observation_space, action_space, device, clip_actions=False,
@@ -27,29 +26,69 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
         GaussianMixin.__init__(self, clip_actions, clip_log_std, min_log_std, max_log_std, reduction)
         DeterministicMixin.__init__(self, clip_actions)
 
-        self.net = nn.Sequential(nn.Linear(self.num_observations, 256),
-                                 nn.ELU(),
-                                 nn.Linear(256, 256),
-                                 nn.ELU(),
-                                 nn.Linear(256, 128),
-                                 nn.ELU())
+        # Define the CNN for depth image preprocessing
+        self.cnn =  nn.Sequential(
+                    nn.Conv2d(1, 8, kernel_size=10, stride=2),
+                    nn.ReLU(),
+                    nn.Conv2d(8, 16, kernel_size=6, stride=1),
+                    nn.ReLU(),
+                    nn.Conv2d(16, 32, kernel_size=3, stride=1),
+                    nn.ReLU(),
+                    nn.Flatten(),
+                    nn.Linear(800, 64),
+                    nn.ReLU())
 
-        self.mean_layer = nn.Linear(128, self.num_actions)
+
+        self.quad_net =  nn.Sequential(
+                            nn.Linear(21, 128),
+                            nn.ELU(),
+                            nn.Linear(128, 64),
+                            nn.ELU(),
+                            nn.Linear(64, 32),
+                            nn.ELU(),
+                            nn.Linear(32, 16),
+                            nn.ELU())
+
+        # Final layers
+        self.final_net = nn.Sequential(
+                        nn.Linear(64 + 16, 64),
+                        nn.ReLU(),
+                        nn.Linear(64, 32),
+                        nn.ReLU(),
+                        nn.Linear(32, 16))
+
+        self.mean_layer = nn.Linear(16, self.num_actions)
         self.log_std_parameter = nn.Parameter(torch.zeros(self.num_actions))
 
-        self.value_layer = nn.Linear(128, 1)
+        self.value_layer = nn.Linear(16, 1)
 
     def act(self, inputs, role):
+        # Preprocess the depth image with the CNN
+        
+        # depth_image = inputs["states"][:, 21:]
+        # cnn_input = depth_image.view(-1, 1, 32, 32)
+        # cnn_output = self.cnn(cnn_input)
+        # quad_output = self.quad_net(inputs["states"][:, :21])
+        # final_output = self.final_net(torch.cat((cnn_output,quad_output), dim=1))
+
         if role == "policy":
             return GaussianMixin.act(self, inputs, role)
         elif role == "value":
             return DeterministicMixin.act(self, inputs, role)
 
     def compute(self, inputs, role):
+
+        depth_image = inputs["states"][:, 21:]
+        cnn_input = depth_image.view(-1, 1, 32, 32)
+
+        cnn_output = self.cnn(cnn_input)
+        quad_output = self.quad_net(inputs["states"][:, :21])
+        final_output = self.final_net(torch.cat((cnn_output,quad_output), dim=1))
+
         if role == "policy":
-            return self.mean_layer(self.net(inputs["states"])), self.log_std_parameter, {}
+            return self.mean_layer(final_output), self.log_std_parameter, {}
         elif role == "value":
-            return self.value_layer(self.net(inputs["states"])), {}
+            return self.value_layer(final_output), {}
 
 
 # load and wrap the Isaac Gym environment
@@ -98,7 +137,7 @@ cfg["value_preprocessor"] = RunningStandardScaler
 cfg["value_preprocessor_kwargs"] = {"size": 1, "device": device}
 # logging to TensorBoard and write checkpoints (in timesteps)
 cfg["experiment"]["write_interval"] = 500
-cfg["experiment"]["checkpoint_interval"] = 5000
+cfg["experiment"]["checkpoint_interval"] = 10000
 cfg["experiment"]["directory"] = "runs/torch/Quadcopter_Tier2_PPO"
 
 agent = PPO(models=models,
@@ -110,10 +149,10 @@ agent = PPO(models=models,
 
 
 # configure and instantiate the RL trainer
-cfg_trainer = {"timesteps": 200000, "headless": True}
+cfg_trainer = {"timesteps": 400000, "headless": True}
 trainer = SequentialTrainer(cfg=cfg_trainer, env=env, agents=agent)
 
-#agent.load("runs/torch/Quadcopter_Tier1_PPO/24-04-26_19-06-44-822142_PPO/checkpoints/tier1_opt_agent_26_4_9pm.pt")
+# agent.load("runs/torch/Quadcopter_Tier2_PPO/24-04-29_21-39-56-742226_PPO/checkpoints/agent_30000.pt")
 
 
 # start training
@@ -122,4 +161,4 @@ trainer.train()
 
 
 # start evaluation
-#trainer.eval()
+# trainer.eval()
