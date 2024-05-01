@@ -40,7 +40,7 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
 
 
         self.quad_net =  nn.Sequential(
-                            nn.Linear(21, 256),
+                            nn.Linear(13, 256),
                             nn.ELU(),
                             nn.Linear(256, 128),
                             nn.ELU(),
@@ -71,11 +71,11 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
 
     def compute(self, inputs, role):
 
-        depth_image = inputs["states"][:, 21:]
+        depth_image = inputs["states"][:, 13:]
         cnn_input = depth_image.view(-1, 1, 32, 32)
 
         cnn_output = self.cnn(cnn_input)
-        quad_output = self.quad_net(inputs["states"][:, :21])
+        quad_output = self.quad_net(inputs["states"][:, :13])
         final_output = self.final_net(torch.cat((cnn_output,quad_output), dim=1))
 
         if role == "policy":

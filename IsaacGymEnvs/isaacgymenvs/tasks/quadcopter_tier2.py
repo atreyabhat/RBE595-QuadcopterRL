@@ -37,9 +37,32 @@ from isaacgymenvs.utils.torch_jit_utils import *
 from .base.vec_task_new import VecTask
 import matplotlib.pyplot as plt
 from PIL import Image as Im
+from isaacgymenvs.utils.math import *
+from isaacgymenvs.utils.controller import Controller
+
+
 
 
 class QuadcopterTier2(VecTask):
+
+    class control:
+        """
+        Control parameters
+        controller:
+            lee_position_control: command_actions = [x, y, z, yaw] in environment frame scaled between -1 and 1
+            lee_velocity_control: command_actions = [vx, vy, vz, yaw_rate] in vehicle frame scaled between -1 and 1
+            lee_attitude_control: command_actions = [thrust, roll, pitch, yaw_rate] in vehicle frame scaled between -1 and 1
+        kP: gains for position
+        kV: gains for velocity
+        kR: gains for attitude
+        kOmega: gains for angular velocity
+        """
+        controller = "lee_position_control"  # or "lee_velocity_control" or "lee_attitude_control"
+        kP = [0.8, 0.8, 1.0]  # used for lee_position_control only
+        kV = [0.5, 0.5, 0.4]  # used for lee_position_control, lee_velocity_control only
+        kR = [3.0, 3.0, 1.0]  # used for lee_position_control, lee_velocity_control and lee_attitude_control
+        kOmega = [0.5, 0.5, 1.20]  # used for lee_position_control, lee_velocity_control and lee_attitude_control
+        scale_input = [1.0, 1.0, 1.0, 1.0]  # scale the input to the controller from -1 to 1 for each dimension, scale from -np.pi to np.pi for yaw in the case of position control
 
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         
@@ -67,15 +90,15 @@ class QuadcopterTier2(VecTask):
         # Observations:
         # 0:13 - root state
         # 13:29 - DOF states
-        num_obs = 21 + self.flat_image_size**2
+        num_obs = 13 + self.flat_image_size**2
 
         # Actions:
         # 0:8 - rotor DOF position targets
         # 8:12 - rotor thrust magnitudes
 
         #1 discrete action primitive
-        num_acts = 16
-
+        num_acts = 4
+        
         self.cfg["env"]["numObservations"] = num_obs
         self.cfg["env"]["numActions"] = num_acts
         self.num_obstacles = 1
@@ -101,10 +124,18 @@ class QuadcopterTier2(VecTask):
         self.root_linvels = self.root_states[:, 7:10]
         self.root_angvels = self.root_states[:, 10:13]
 
-        self.target_root_positions = torch.zeros((self.num_envs, 3), device=self.device, dtype=torch.float32)
+        self.target_root_positions = torch.zeros((self.num_envs, 4), device=self.device, dtype=torch.float32)
         self.target_root_positions[:, 2] = 1
+        self.target_root_positions[:, 3] = 0
+
+        self.controller = Controller(self.control, self.device)
 
         self.global_target_positions = self.target_root_positions.clone()
+
+        self.action_input = torch.zeros(
+            (self.num_envs, 4), dtype=torch.float32, device=self.device, requires_grad=False)
+        self.torques = torch.zeros((self.num_envs, bodies_per_env, 3),
+                                   dtype=torch.float32, device=self.device, requires_grad=False)
 
         self.marker_states = vec_root_tensor[:, 1, :]
         self.marker_positions = self.marker_states[:, 0:3]
@@ -125,7 +156,6 @@ class QuadcopterTier2(VecTask):
 
         # control tensors
         self.dof_position_targets = torch.zeros((self.num_envs, dofs_per_env), dtype=torch.float32, device=self.device, requires_grad=False)
-        print("self.dof_position_targets:", self.dof_position_targets.shape)
         self.thrusts = torch.zeros((self.num_envs, 4), dtype=torch.float32, device=self.device, requires_grad=False)
         self.forces = torch.zeros((self.num_envs, bodies_per_env, 3), dtype=torch.float32, device=self.device, requires_grad=False)
         self.contact_forces = gymtorch.wrap_tensor(self.contact_force_tensor).view(self.num_envs, bodies_per_env, 3)[:, 0]
@@ -402,6 +432,11 @@ class QuadcopterTier2(VecTask):
 
             self.envs.append(env)
 
+        self.robot_body_props = self.gym.get_actor_rigid_body_properties(self.envs[0], actor_handle)
+        self.robot_mass = 0
+        for prop in self.robot_body_props:
+            self.robot_mass += prop.mass
+
         if self.debug_viz:
             # need env offsets for the rotors
             self.rotor_env_offsets = torch.zeros((self.num_envs, 4, 3), device=self.device)
@@ -414,38 +449,23 @@ class QuadcopterTier2(VecTask):
     def set_targets(self, env_ids):
         num_sets = len(env_ids)
         # set target position randomly with x, y in (-10, 10) and z in (1, 5)
-        self.target_root_positions[env_ids, 0] = torch.FloatTensor(num_sets,).uniform_(-1, 1)
-        self.target_root_positions[env_ids, 1] =  torch.FloatTensor(num_sets,).uniform_(-1, 1)
+        self.target_root_positions[env_ids, 0] = torch.FloatTensor(num_sets,).uniform_(-1, 1)*0
+        self.target_root_positions[env_ids, 1] =  torch.FloatTensor(num_sets,).uniform_(-1, 1)*0
 
         #self.target_root_positions[env_ids, 0:2] = (torch.rand(num_sets, 2, device=self.device) * 2) - 1
-        self.target_root_positions[env_ids, 2] = torch.rand(num_sets, device=self.device) * 4 + 1
+        self.target_root_positions[env_ids, 2] = torch.rand(num_sets, device=self.device) * 0 + 5
 
         self.global_target_positions[env_ids] = self.target_root_positions[env_ids]
-        self.marker_positions[env_ids] = self.target_root_positions[env_ids]
+        self.marker_positions[env_ids] = self.target_root_positions[env_ids,:3]
         actor_indices = self.all_actor_indices[env_ids, 1].flatten()
 
 
-        return actor_indices
-    
-    def set_random_target(self, env_ids):
-        num_sets = len(env_ids)
-        
-        # set target position randomly with x, y in (-10, 10) and z in (1, 5)
-        self.target_root_positions[env_ids, 0] = torch.FloatTensor(num_sets,).uniform_(-1, 1)
-        self.target_root_positions[env_ids, 1] =  torch.FloatTensor(num_sets,).uniform_(-1, 1)
-
-        #self.target_root_positions[env_ids, 0:2] = (torch.rand(num_sets, 2, device=self.device) * 2) - 1
-        self.target_root_positions[env_ids, 2] = torch.rand(num_sets, device=self.device) * 4 + 1
-
-        self.global_target_positions[env_ids] = self.target_root_positions[env_ids]
-        self.marker_positions[env_ids] = self.target_root_positions[env_ids]
-        
-        actor_indices = self.all_actor_indices[env_ids, 1].flatten()
-        
         return actor_indices
 
 
     def reset_idx(self, env_ids):
+
+        print("Resetting")
 
         num_resets = len(env_ids)
 
@@ -476,7 +496,7 @@ class QuadcopterTier2(VecTask):
         self.progress_buf[env_ids] = 0
         self.last_reset_counter = self.counter
 
-        return torch.unique(torch.cat([target_actor_indices, actor_indices]))
+        #return torch.unique(torch.cat([target_actor_indices, actor_indices]))
 
 
     def pre_physics_step(self, _actions):
@@ -499,59 +519,63 @@ class QuadcopterTier2(VecTask):
         # print("actions:", actions)
 
         # Define scaling factors for each movement direction
-        dir_action_scale = 5  # Adjust as needed
+        dir_action_scale = 0.5  # Adjust as needed
 
-        self.target_root_positions = self.global_target_positions
+        # self.target_root_positions = self.global_target_positions
 
         
-        # if self.depth_min < 0.5 :
+        # Clamp actions[:,12:] from 0 to 1
+        direction_list = torch.clamp(actions[:, :], 0, 1)
+        direction = torch.max(direction_list, dim=1)
 
-        #     # Clamp actions[:,12:] from 0 to 1
-        #     direction_list = torch.clamp(actions[:, 12:], 0, 1)
-        #     direction = torch.max(direction_list, dim=1)
+        max_action, direction = torch.max(direction_list, dim=1)
+        direction = direction.item()
+        # print("direction:", direction) 
 
-        #     max_action, direction = torch.max(direction_list, dim=1)
-        #     direction = direction.item() 
+        # print( max_action*dir_action_scale)
+        # self.target_root_positions[:,:3] = self.root_positions[:,:3] + actions*dir_action_scale
 
-        #     # Scale the thrust based on the maximum action value
-        #     if direction == 0:   #hover
-        #         actions[:, 8:12] = torch.full_like(actions[:, 8:12], 0.6)
-             
-        #     elif direction == 1:  # Left
-        #         self.target_root_positions[:, 0] = self.root_positions[:,0] - max_action*dir_action_scale
-                
-        #     elif direction == 2:  # Right
-        #         self.target_root_positions[:, 0] = self.root_positions[:,0] + max_action*dir_action_scale
-                
-        #     elif direction == 3:  # Up
-        #         self.target_root_positions[:, 2] = self.root_positions[:,0] + max_action*dir_action_scale
+        # Scale the thrust based on the maximum action value
+        if direction == 0:   #forward
+            self.target_root_positions[:, 1] = self.root_positions[:,1] + max_action*dir_action_scale
+            
+        elif direction == 1:  # Left
+            self.target_root_positions[:, 0] = self.root_positions[:,0] - max_action*dir_action_scale
+            
+        elif direction == 2:  # Right
+            self.target_root_positions[:, 0] = self.root_positions[:,0] + max_action*dir_action_scale
+            
+        elif direction == 3:  # Up
+            self.target_root_positions[:, 2] = self.root_positions[:,0] + max_action*dir_action_scale
 
-        # else:
-        #     self.target_root_positions = self.global_target_positions
-                
+        
 
-        dof_action_speed_scale = 8 * math.pi
-        self.dof_position_targets += self.dt * dof_action_speed_scale * actions[:, 0:8]
-        self.dof_position_targets[:] = tensor_clamp(self.dof_position_targets, self.dof_lower_limits, self.dof_upper_limits)
-
-        thrust_action_speed_scale = 200
-        self.thrusts += self.dt * thrust_action_speed_scale * actions[:, 8:12]
-        self.thrusts[:] = tensor_clamp(self.thrusts, self.thrust_lower_limits, self.thrust_upper_limits)
-
-        self.forces[:, 2, 2] = self.thrusts[:, 0]
-        self.forces[:, 4, 2] = self.thrusts[:, 1]
-        self.forces[:, 6, 2] = self.thrusts[:, 2]
-        self.forces[:, 8, 2] = self.thrusts[:, 3]
+        # print("self.target_root_positions:", self.target_root_positions)
+        # print("global_target_positions:", self.global_target_positions)
 
 
-        # clear actions for reset envs
-        self.thrusts[reset_env_ids] = 0.0
-        self.forces[reset_env_ids] = 0.0
-        self.dof_position_targets[reset_env_ids] = self.dof_positions[reset_env_ids]
+            
+        self.action_input[:] = self.target_root_positions[:]
 
-        # apply actions
-        self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.dof_position_targets))
-        self.gym.apply_rigid_body_force_tensors(self.sim, gymtorch.unwrap_tensor(self.forces), None, gymapi.LOCAL_SPACE)
+        # clear position_increment for reset envs
+        self.forces[:] = 0.0
+        self.torques[:, :] = 0.0
+
+        output_thrusts_mass_normalized, output_torques_inertia_normalized = self.controller(
+            self.root_states, self.action_input)
+        self.forces[:, :, 2] = self.robot_mass * (-self.sim_params.gravity.z) * output_thrusts_mass_normalized  #was previosly self.forces[:,0,2]
+        
+      
+        
+        self.torques[:, 0] = output_torques_inertia_normalized
+        print("Forces:",output_thrusts_mass_normalized)
+        self.forces = torch.where(self.forces < 0, torch.zeros_like(self.forces), self.forces)
+
+        
+
+        # apply position_increment
+        self.gym.apply_rigid_body_force_tensors(self.sim, gymtorch.unwrap_tensor(
+            self.forces), gymtorch.unwrap_tensor(self.torques), gymapi.LOCAL_SPACE)
 
 
 
@@ -566,7 +590,11 @@ class QuadcopterTier2(VecTask):
         self.check_collisions()
         self.compute_reward()
 
-        self.marker_positions[0] = self.target_root_positions[0]
+        if torch.allclose(torch.round(self.target_root_positions[0,:3] * 100) / 10, torch.round(self.root_positions[0,:] * 100) / 10):
+            self.target_root_positions = self.global_target_positions
+
+
+        self.marker_positions[:] = self.global_target_positions[:,:3]
             
 
         # debug viz
@@ -614,11 +642,12 @@ class QuadcopterTier2(VecTask):
             self.camera_rgba_debug_fig = plt.figure("CAMERA_DEBUG")
             self.camera_visulization()
            
-        self.obs_buf[..., 0:3] = (self.target_root_positions - self.root_positions)
+        #self.obs_buf[..., 0:3] = (self.target_root_positions - self.root_positions)
+        self.obs_buf[..., :3] = self.root_positions
         self.obs_buf[..., 3:7] = self.root_quats
-        self.obs_buf[..., 7:10] = self.root_linvels / 2
-        self.obs_buf[..., 10:13] = self.root_angvels / math.pi
-        self.obs_buf[..., 13:21] = self.dof_positions
+        self.obs_buf[..., 7:10] = self.root_linvels
+        self.obs_buf[..., 10:13] = self.root_angvels
+        # self.obs_buf[..., 13:21] = self.dof_positions
 
         for i in range(self.num_envs):
             self.depth_image = self.camera_tensors[i]
@@ -638,13 +667,11 @@ class QuadcopterTier2(VecTask):
 
         
         
-        self.obs_buf[..., 21:] = self.depth_images_tensor
+        self.obs_buf[..., 13:] = self.depth_images_tensor
         self.depth_min = torch.min(self.depth_images_tensor)
 
 
-        if torch.allclose(torch.round(self.target_root_positions[0,:] * 100) / 10, torch.round(self.root_positions[0,:] * 100) / 10):
-            self.target_root_positions = self.global_target_positions
-
+       
 
         # if self.progress_buf[0]%50 == 0:
         #     print("Local target", self.target_root_positions[0])
@@ -710,50 +737,43 @@ def quat_axis(q, axis=0):
 def compute_quadcopter_reward(depth_images_tensor, root_positions, target_root_positions, root_quats, root_linvels, root_angvels, reset_buf, progress_buf, max_episode_length):
     # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor,Tensor, Tensor, float) -> Tuple[Tensor, Tensor]
 
-    avoid_obstacle_reward_scale = 10
+    target_dist = torch.sqrt(torch.square(target_root_positions[:,:3] - root_positions).sum(-1))
+    
+    pos_reward = 2.0 / (1.0 + target_dist * target_dist)
 
-    # distance to target
-    target_dist = torch.sqrt(torch.square(target_root_positions - root_positions).sum(-1))
-    pos_reward = 1.0 / (1.0 + target_dist * target_dist)
+    # dist_reward = (20.0 - target_dist) / 40.0
 
     # uprightness
     ups = quat_axis(root_quats, 2)
     tiltage = torch.abs(1 - ups[..., 2])
-    up_reward = 5.0 / (1.0 + tiltage * tiltage)
+    up_reward = 1.0 / (1.0 + tiltage * tiltage)
 
     # spinning
     spinnage = torch.abs(root_angvels[..., 2])
     spinnage_reward = 1.0 / (1.0 + spinnage * spinnage)
 
-    #depth
-    depth_min = torch.min(depth_images_tensor)
-    # print("depth_min:", depth_min)
-
     #collision
+    depth_min = torch.min(depth_images_tensor)
     if depth_min < 0.05:
-        collision_penalty = -100.0
+        collision_penalty = -50.0
         print("Collision Detected")
     else:
         collision_penalty = 0.0
 
-    # #avoid obstacle
-    # if depth_min < 0.5:
-    #     avoid_obstacle_reward = depth_min * avoid_obstacle_reward_scale
-    # else:
-    #     avoid_obstacle_reward = torch.tensor(0.0) 
-
     # combined reward
     # uprigness and spinning only matter when close to the target
-    reward = pos_reward + pos_reward * (up_reward + spinnage_reward) + collision_penalty # + avoid_obstacle_reward
+    reward = pos_reward + pos_reward * (up_reward + spinnage_reward) + collision_penalty
 
     # resets due to misbehavior
     ones = torch.ones_like(reset_buf)
     die = torch.zeros_like(reset_buf)
-    die = torch.where(target_dist > 5.0, ones, die)
+    die = torch.where(target_dist > 8.0, ones, die)
     die = torch.where(root_positions[..., 2] < 0.5, ones, die)
 
     # resets due to episode length
     reset = torch.where(progress_buf >= max_episode_length - 1, ones, die)
-    reset = torch.where(collision_penalty != torch.tensor(0.0)   , ones, die)
+    reset = torch.where(torch.norm(root_positions, dim=1) > 20, ones, reset)
+    reset = torch.where(collision_penalty != torch.tensor(0.0), ones, die)
 
+   
     return reward, reset
