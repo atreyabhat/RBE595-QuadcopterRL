@@ -153,7 +153,6 @@ class QuadcopterTier2(VecTask):
         # Action display fixed coordinate
         self.action_display_fixed_coordinate = torch.tensor([[5, 5, 5]], device=self.device, dtype=torch.float32)
 
-        # Set drone hit ground buffer #FIXME: in tier1, but here should be solved by environment bounds
         self.drone_hit_ground_buf = torch.ones(self.num_envs, device=self.device, dtype=torch.long)
         self.collisions = torch.zeros(self.num_envs, device=self.device) 
 
@@ -482,8 +481,8 @@ class QuadcopterTier2(VecTask):
 
     def pre_physics_step(self, _actions):
         # resets
-        if self.counter % 250 == 0:
-            print("self.counter:", self.counter)
+        # if self.counter % 250 == 0:
+        #     print("self.counter:", self.counter)
         self.counter += 1
 
         set_target_ids = (self.progress_buf % 500 == 0).nonzero(as_tuple=False).squeeze(-1)
@@ -535,7 +534,7 @@ class QuadcopterTier2(VecTask):
         self.dof_position_targets += self.dt * dof_action_speed_scale * actions[:, 0:8]
         self.dof_position_targets[:] = tensor_clamp(self.dof_position_targets, self.dof_lower_limits, self.dof_upper_limits)
 
-        thrust_action_speed_scale = 100
+        thrust_action_speed_scale = 200
         self.thrusts += self.dt * thrust_action_speed_scale * actions[:, 8:12]
         self.thrusts[:] = tensor_clamp(self.thrusts, self.thrust_lower_limits, self.thrust_upper_limits)
 
@@ -625,7 +624,7 @@ class QuadcopterTier2(VecTask):
             self.depth_image = self.camera_tensors[i]
             self.depth_image = -self.depth_image
              # The given depth image has shape (250, 250), but we need (1, 256)
-            # So, first we need to scale it to 16x16 on the GPU
+            # So, first we need to scale it to 32x32 on the GPU
             depth_im = self.depth_image.unsqueeze(0).unsqueeze(0)
             depth_im = torch.nn.functional.interpolate(depth_im, size=((self.flat_image_size), (self.flat_image_size)), mode='bilinear', align_corners=False)
             depth_im = torch.where(torch.isnan(depth_im), torch.zeros_like(depth_im), depth_im)

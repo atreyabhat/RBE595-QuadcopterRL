@@ -52,24 +52,17 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
         # Final layers
         self.final_net = nn.Sequential(
                         nn.Linear(64 + 16, 64),
-                        nn.ReLU(),
+                        nn.ELU(),
                         nn.Linear(64, 32),
-                        nn.ReLU(),
-                        nn.Linear(32, 16))
+                        nn.ELU())
 
-        self.mean_layer = nn.Linear(16, self.num_actions)
+        self.mean_layer = nn.Linear(32, self.num_actions)
         self.log_std_parameter = nn.Parameter(torch.zeros(self.num_actions))
 
-        self.value_layer = nn.Linear(16, 1)
+        self.value_layer = nn.Linear(32, 1)
 
     def act(self, inputs, role):
         # Preprocess the depth image with the CNN
-        
-        # depth_image = inputs["states"][:, 21:]
-        # cnn_input = depth_image.view(-1, 1, 32, 32)
-        # cnn_output = self.cnn(cnn_input)
-        # quad_output = self.quad_net(inputs["states"][:, :21])
-        # final_output = self.final_net(torch.cat((cnn_output,quad_output), dim=1))
 
         if role == "policy":
             return GaussianMixin.act(self, inputs, role)
