@@ -40,18 +40,18 @@ class Shared(GaussianMixin, DeterministicMixin, Model):
 
 
         self.quad_net =  nn.Sequential(
-                            nn.Linear(21, 128),
+                            nn.Linear(21, 256),
+                            nn.ELU(),
+                            nn.Linear(256, 128),
                             nn.ELU(),
                             nn.Linear(128, 64),
                             nn.ELU(),
                             nn.Linear(64, 32),
-                            nn.ELU(),
-                            nn.Linear(32, 16),
                             nn.ELU())
 
         # Final layers
         self.final_net = nn.Sequential(
-                        nn.Linear(64 + 16, 64),
+                        nn.Linear(64 + 32, 64),
                         nn.ELU(),
                         nn.Linear(64, 32),
                         nn.ELU())
