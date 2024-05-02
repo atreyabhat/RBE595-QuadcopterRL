@@ -40,8 +40,13 @@ from PIL import Image as Im
 from isaacgymenvs.utils.math import *
 from isaacgymenvs.utils.controller import Controller
 
+x_m = 1
+y_m = 4
+z_m = 1
 
-
+x_q = 1
+y_q = -4
+z_q = 1
 
 class QuadcopterTier2(VecTask):
 
@@ -125,8 +130,9 @@ class QuadcopterTier2(VecTask):
         self.root_angvels = self.root_states[:, 10:13]
 
         self.target_root_positions = torch.zeros((self.num_envs, 4), device=self.device, dtype=torch.float32)
-        self.target_root_positions[:, 2] = 1
-        self.target_root_positions[:, 3] = 0
+        self.target_root_positions[:, 0] = x_m
+        self.target_root_positions[:, 1] = y_m
+        self.target_root_positions[:, 2] = z_m
 
         self.controller = Controller(self.control, self.device)
 
@@ -266,7 +272,7 @@ class QuadcopterTier2(VecTask):
             pitch_joint.attrib["pos"] = "%g %g %g" % (0, 0, 0)
             pitch_joint.attrib["axis"] = "0 1 0"
             pitch_joint.attrib["limited"] = "true"
-            pitch_joint.attrib["range"] = "-30 30"
+            pitch_joint.attrib["range"] = "-10 10"
 
             rotor = ET.SubElement(rotor_arm, "body")
             rotor.attrib["name"] = "rotor" + str(i)
@@ -285,7 +291,15 @@ class QuadcopterTier2(VecTask):
             roll_joint.attrib["pos"] = "%g %g %g" % (0, 0, 0)
             roll_joint.attrib["axis"] = "1 0 0"
             roll_joint.attrib["limited"] = "true"
-            roll_joint.attrib["range"] = "-30 30"
+            roll_joint.attrib["range"] = "-10 10"
+
+            # roll_joint = ET.SubElement(rotor, "joint")
+            # roll_joint.attrib["name"] = "rotor_roll" + str(i)
+            # roll_joint.attrib["type"] = "hinge"
+            # roll_joint.attrib["pos"] = "%g %g %g" % (0, 0, 0)
+            # roll_joint.attrib["axis"] = "0 0 1"
+            # roll_joint.attrib["limited"] = "true"
+            # roll_joint.attrib["range"] = "-60 60"
 
         gymutil._indent_xml(root)
         ET.ElementTree(root).write("quadcopter.xml")
@@ -353,7 +367,9 @@ class QuadcopterTier2(VecTask):
 
 
         default_pose = gymapi.Transform()
-        default_pose.p.z = 1.0
+        default_pose.p.z = z_m
+        default_pose.p.x = x_m
+        default_pose.p.y = y_m
 
         # Define start pose for wall
         self.wall_start_pose = gymapi.Transform()
@@ -449,16 +465,15 @@ class QuadcopterTier2(VecTask):
     def set_targets(self, env_ids):
         num_sets = len(env_ids)
         # set target position randomly with x, y in (-10, 10) and z in (1, 5)
-        self.target_root_positions[env_ids, 0] = torch.FloatTensor(num_sets,).uniform_(-1, 1)*0
-        self.target_root_positions[env_ids, 1] =  torch.FloatTensor(num_sets,).uniform_(-1, 1)*0
+        self.target_root_positions[env_ids, 0] = torch.FloatTensor(num_sets,).uniform_(-1, 1)*0 + x_m
+        self.target_root_positions[env_ids, 1] =  torch.FloatTensor(num_sets,).uniform_(-1, 1)*0 + y_m
 
         #self.target_root_positions[env_ids, 0:2] = (torch.rand(num_sets, 2, device=self.device) * 2) - 1
-        self.target_root_positions[env_ids, 2] = torch.rand(num_sets, device=self.device) * 0 + 5
+        self.target_root_positions[env_ids, 2] = torch.rand(num_sets, device=self.device) * 0 + z_m
 
         self.global_target_positions[env_ids] = self.target_root_positions[env_ids]
         self.marker_positions[env_ids] = self.target_root_positions[env_ids,:3]
         actor_indices = self.all_actor_indices[env_ids, 1].flatten()
-
 
         return actor_indices
 
@@ -479,9 +494,9 @@ class QuadcopterTier2(VecTask):
         # print("prop_indices:", prop_indices)
 
         self.root_states[env_ids] = self.initial_root_states[env_ids]
-        self.root_states[env_ids, 0] += torch_rand_float(-1.5, 1.5, (num_resets, 1), self.device).flatten()
-        self.root_states[env_ids, 1] += torch_rand_float(-1.5, 1.5, (num_resets, 1), self.device).flatten()
-        self.root_states[env_ids, 2] += torch_rand_float(-0.2, 1.5, (num_resets, 1), self.device).flatten()
+        self.root_states[env_ids, 0] = torch_rand_float(-1.5, 1.5, (num_resets, 1), self.device).flatten()*0 + x_m
+        self.root_states[env_ids, 1] = torch_rand_float(-1.5, 1.5, (num_resets, 1), self.device).flatten()*0 + y_m
+        self.root_states[env_ids, 2] = torch_rand_float(-0.2, 1.5, (num_resets, 1), self.device).flatten()*0 + z_m
         self.gym.set_actor_root_state_tensor_indexed(self.sim, self.root_tensor, gymtorch.unwrap_tensor(actor_indices), num_resets)
 
         # self.gym.set_actor_root_state_tensor_indexed(self.sim,
@@ -736,6 +751,7 @@ def quat_axis(q, axis=0):
 @torch.jit.script
 def compute_quadcopter_reward(depth_images_tensor, root_positions, target_root_positions, root_quats, root_linvels, root_angvels, reset_buf, progress_buf, max_episode_length):
     # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor,Tensor, Tensor, float) -> Tuple[Tensor, Tensor]
+    device = torch.device("cuda:0")
 
     target_dist = torch.sqrt(torch.square(target_root_positions[:,:3] - root_positions).sum(-1))
     
@@ -773,7 +789,7 @@ def compute_quadcopter_reward(depth_images_tensor, root_positions, target_root_p
     # resets due to episode length
     reset = torch.where(progress_buf >= max_episode_length - 1, ones, die)
     reset = torch.where(torch.norm(root_positions, dim=1) > 20, ones, reset)
-    reset = torch.where(collision_penalty != torch.tensor(0.0), ones, die)
+    reset = torch.where(collision_penalty != torch.tensor(0.0).to(device), ones, die)
 
    
     return reward, reset
