@@ -37,7 +37,15 @@ from isaacgymenvs.utils.torch_jit_utils import *
 from .base.vec_task import VecTask
 import matplotlib.pyplot as plt
 from PIL import Image as Im
+import random
 
+x_q = 0
+y_q = 0
+z_q = 1
+
+x_m = 0
+y_m = 0
+z_m = 4.8
 
 class QuadcopterTier1(VecTask):
 
@@ -96,10 +104,12 @@ class QuadcopterTier1(VecTask):
         self.root_angvels = self.root_states[:, 10:13]
 
         self.target_root_positions = torch.zeros((self.num_envs, 3), device=self.device, dtype=torch.float32)
-        self.target_root_positions[:, 2] = 1
+        self.target_root_positions[:, 0] = x_m
+        self.target_root_positions[:, 1] = y_m
+        self.target_root_positions[:, 2] = z_m
 
-        # self.marker_states = vec_root_tensor[:, 1, :]
-        self.marker_positions = (torch.rand(1, 3, device=self.device) * 20) * 0 #self.marker_states[:, 0:3]
+        self.marker_states = vec_root_tensor[:, 1, :] # this should be commment out if not using the marker states
+        self.marker_positions = self.marker_states[:, 0:3] #(torch.rand(1, 3, device=self.device) * 20) * 0 #self.marker_states[:, 0:3]
         self.marker_positions[0, 2] = torch.rand(1, device=self.device) * 0 + 5
 
         self.dof_states = vec_dof_tensor
@@ -273,7 +283,7 @@ class QuadcopterTier1(VecTask):
         bodies_per_env = self.num_obstacles + self.robot_num_bodies  # Number of links in the environment + robot
 
         asset_options.fix_base_link = True
-        marker_asset = self.gym.create_sphere(self.sim, 0.00001, asset_options)
+        marker_asset = self.gym.create_sphere(self.sim, 0.001, asset_options)
 
 
         # self.obs_num_bodies = self.gym.get_asset_rigid_body_count(obs_assets[0])
@@ -292,13 +302,13 @@ class QuadcopterTier1(VecTask):
         self.dof_upper_limits = to_torch(self.dof_upper_limits, device=self.device)
         self.dof_ranges = self.dof_upper_limits - self.dof_lower_limits
 
-        marker_asset = self.gym.create_sphere(self.sim, 0.003, asset_options)
+        marker_asset = self.gym.create_sphere(self.sim, 0.35, asset_options)
 
         # this is the z pose it was using # wrong # bug
         self.default_pose = gymapi.Transform()
-        self.default_pose.p.z = 5
-        self.default_pose.p.x = 0
-        self.default_pose.p.y = 0
+        self.default_pose.p.z = z_m
+        self.default_pose.p.x = x_m
+        self.default_pose.p.y = y_m
 
         self.envs = []
         self.camera_handles = []
@@ -382,8 +392,9 @@ class QuadcopterTier1(VecTask):
     def set_targets(self, env_ids):
         num_sets = len(env_ids)
         # set target position randomly with x, y in (-10, 10) and z in (1, 5)
-        self.target_root_positions[env_ids, 0:2] = (torch.rand(num_sets, 2, device=self.device) * 20) * 0
-        self.target_root_positions[env_ids, 2] = torch.rand(num_sets, device=self.device) * 0 + 5
+        self.target_root_positions[env_ids, 0] = x_m #(torch.rand(num_sets, 2, device=self.device) * 20) * 0
+        self.target_root_positions[env_ids, 1] = y_m
+        self.target_root_positions[env_ids, 2] = torch.rand(num_sets, device=self.device) * 0 + z_m
         print("target_loc", self.target_root_positions)
         self.marker_positions[env_ids] = self.target_root_positions[env_ids]
         actor_indices = self.all_actor_indices[env_ids, 1].flatten()
@@ -402,9 +413,9 @@ class QuadcopterTier1(VecTask):
         actor_indices = self.all_actor_indices[env_ids].flatten()
 
         self.root_states[env_ids] = self.initial_root_states[env_ids]
-        self.root_states[env_ids, 0] += torch_rand_float(-1.5, 1.5, (num_resets, 1), self.device).flatten()
-        self.root_states[env_ids, 1] += torch_rand_float(-1.5, 1.5, (num_resets, 1), self.device).flatten()
-        self.root_states[env_ids, 2] += torch_rand_float(-0.2, 1.5, (num_resets, 1), self.device).flatten()
+        self.root_states[env_ids, 0] = torch_rand_float(-1.5, 1.5, (num_resets, 1), self.device).flatten()*0 + x_q
+        self.root_states[env_ids, 1] = torch_rand_float(-1.5, 1.5, (num_resets, 1), self.device).flatten()*0 + y_q
+        self.root_states[env_ids, 2] = torch_rand_float(-0.2, 1.5, (num_resets, 1), self.device).flatten()*0 + z_q
         self.gym.set_actor_root_state_tensor_indexed(self.sim, self.root_tensor, gymtorch.unwrap_tensor(actor_indices), num_resets)
 
         self.dof_positions[env_ids] = torch_rand_float(-0.2, 0.2, (num_resets, 8), self.device)
